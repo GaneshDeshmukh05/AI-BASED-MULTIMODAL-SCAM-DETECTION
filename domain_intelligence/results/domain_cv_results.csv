@@ -1,0 +1,2 @@
+evaluation_type,threshold,rows,accuracy,precision,recall,f1,roc_auc,pr_auc,false_positive_rate,false_negative_rate,true_negative,false_positive,false_negative,true_positive
+domain_disjoint_oof_training,0.5,202283,0.9266522644018529,0.9635513915435693,0.8831594936708861,0.9216056134121663,0.9674226366276906,0.9750907249715549,0.03186423652362049,0.11684050632911393,100234,3299,11538,87212

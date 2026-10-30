@@ -1,0 +1,30 @@
+# Pyrefly Configuration for Multimodal Scam Detection System
+project-includes = [
+    "fusion",
+    "adapters",
+    "tests",
+    "*.py",
+]
+project-excludes = [
+    "**/__pycache__",
+    ".venv",
+    "archive",
+    "backups_phase2",
+    "phase1_backups",
+    "domain_intelligence",
+]
+search-path = [
+    ".",
+    "domain_intelligence",
+    ".venv/Lib/site-packages",
+    "C:/Users/Abhishek/AppData/Local/Programs/Python/Python313/Lib/site-packages",
+]
+infer-with-first-use = false
+permissive-ignores = true
+disable-type-errors-in-ide = true
+
+[errors]
+missing-import = "ignore"
+missing-attribute = "ignore"
+unsupported-operation = "ignore"
+bad-argument-type = "ignore"

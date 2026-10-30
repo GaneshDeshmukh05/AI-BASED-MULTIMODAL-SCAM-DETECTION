@@ -1,0 +1,14 @@
+{
+  "task": "scam_vs_normal_call_audio",
+  "sample_rate": 16000,
+  "duration_seconds": 5,
+  "n_mels": 64,
+  "n_fft": 1024,
+  "hop_length": 256,
+  "threshold": 0.5,
+  "labels": {
+    "0": "normal",
+    "1": "scam"
+  },
+  "feature": "per-example normalized log-Mel spectrogram"
+}

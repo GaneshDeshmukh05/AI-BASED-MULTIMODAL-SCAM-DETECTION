@@ -1,0 +1,48 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Testing / tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Secrets & local environment ---
+# NEVER commit .env - copy .env.example and fill in your own keys.
+.env
+*.local
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+
+# --- OS junk ---
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# --- Generated / tool artifacts ---
+domain_intelligence/anaconda_projects/
+.ipynb_checkpoints/
+
+# --- Archived superseded files and backups ---
+archive/
+phase1_backups/
+backups_phase2/
+
+# --- Large dataset archives (>100MB exceeds GitHub push limits) ---
+text_and_screenshot_module/Screenshot_Dataset-20261023T174631Z-1-001/Screenshot_Dataset/FINAL_DATASET_1_3.zip
+
+# --- Temporary uploads (backend integration) ---
+temp_uploads/
