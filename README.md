@@ -10,7 +10,7 @@ actually produced.
 
 ---
 
-## 🎯 The problem
+## The problem
 
 Modern scams are multi-channel: an **AI-cloned voice** on a call, a **phishing link** by SMS,
 **pressure text** ("account suspended in 24 hours"), and a **fake login page**. Each signal
@@ -19,7 +19,7 @@ fuses their verdicts safely — one strong verified threat cannot be averaged do
 and one benign signal cannot green-light a conversation in which another detector found
 fraud.
 
-## 🏛️ Team & module ownership
+## Team & module ownership
 
 This is a collaborative final-year engineering project. Each module directory is named after
 and owned by its author:
@@ -34,7 +34,7 @@ and owned by its author:
 
 Full responsibility matrix: [docs/TEAM_RESPONSIBILITIES.md](docs/TEAM_RESPONSIBILITIES.md)
 
-## ⚙️ How it works
+## How it works
 
 ```
 User inputs (audio file / URL / text / screenshot — any combination)
@@ -63,14 +63,14 @@ Key fusion behaviours:
 - **Zero-hallucination explanations**: the deterministic engine is template-based; optional
   Gemini/OpenAI output is filtered so citations must match real detector evidence.
 
-## 🧰 Technology stack
+## Technology stack
 
 Python 3.10–3.13 · TensorFlow/Keras 3 (audio) · XGBoost + SHAP + scikit-learn (URL) ·
 joblib (text model) · librosa + soundfile (spectrograms) · dnspython + python-whois +
 tldextract (OSINT) · Pillow (images) · Pydantic v2 (contracts) · FastAPI (URL Module's standalone
 service) · pytest (62 tests).
 
-## 📂 Repository structure
+## Repository structure
 
 ```
 LLM integration/
@@ -89,7 +89,7 @@ LLM integration/
 
 Every file explained: [docs/FILE_STRUCTURE.md](docs/FILE_STRUCTURE.md)
 
-## 🚀 Quickstart
+## Quickstart
 
 ```powershell
 # 1. Install (Windows/PowerShell; see docs for macOS/Linux)
@@ -133,7 +133,7 @@ payload = result.to_dict()               # JSON-ready dict for your API response
 signature, parameters, real response JSON, verdict/risk enums, error semantics, and a
 ready-to-use FastAPI route.
 
-## 📚 Documentation
+## Documentation
 
 | Document | Contents |
 |---|---|
@@ -147,7 +147,7 @@ ready-to-use FastAPI route.
 | [docs/DEMONSTRATION_RUNBOOK.md](docs/DEMONSTRATION_RUNBOOK.md) | Step-by-step evaluator presentation guide & live demo script |
 | [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | Verified vs sample-tested vs heuristic vs planned |
 
-## 🧪 Tests
+## Tests
 
 62 automated regression and validation tests across 4 test suites, all passing:
 
@@ -162,7 +162,7 @@ pytest tests/test_text_screenshot_regression.py    # Text & screenshot calibrate
 URL Module's module additionally ships its own suite: `pytest domain_intelligence`.
 Details: [docs/DEMONSTRATION_RUNBOOK.md](docs/DEMONSTRATION_RUNBOOK.md)
 
-## ⚠️ Current limitations (honest summary)
+## Current limitations (honest summary)
 
 - **URL model performance is strictly benchmarked on unseen domains**: 93.94% accuracy and 0.9845 ROC-AUC
   on the primary zero-day holdout; 88.48% accuracy on external cross-dataset evaluation. Conventional random
