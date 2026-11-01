@@ -1,0 +1,23 @@
+{
+  "include": [
+    "fusion",
+    "adapters",
+    "tests",
+    "*.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "archive",
+    "backups_phase2",
+    "phase1_backups"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": [
+    ".",
+    "domain_intelligence",
+    ".venv/Lib/site-packages",
+    "C:/Users/Abhishek/AppData/Local/Programs/Python/Python313/Lib/site-packages"
+  ]
+}

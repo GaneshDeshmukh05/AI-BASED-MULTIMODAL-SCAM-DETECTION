@@ -1,0 +1,43 @@
+# Multimodal Scam Detection System - root dependencies
+# These cover the fusion layer (fusion/), adapters (adapters/), the CLI (main.py),
+# the demo (demo.py) and the test suite (tests/).
+#
+# The three teammate modules keep their own requirement files where they exist:
+#   - domain_intelligence/requirements.txt (full research / API environment)
+#
+# Verified against the development environment (Python 3.13, Windows, CPU-only TF).
+
+# --- Core fusion & schema layer ---
+pydantic>=2.0.0
+
+# --- Audio modality (adapters/audio_adapter.py + audio_model/) ---
+# TensorFlow on native Windows >= 2.11 is CPU-only; inference works on CPU.
+tensorflow>=2.16
+keras>=3.0
+librosa>=0.10
+soundfile>=0.12
+numpy>=1.26
+
+# --- URL modality (adapters/url_adapter.py + domain_intelligence/) ---
+scikit-learn>=1.4
+xgboost>=2.0
+shap>=0.45
+joblib>=1.3
+pandas>=2.0
+python-whois>=0.9.5
+dnspython>=2.6.1
+tldextract>=5.1.2
+requests>=2.31.0
+
+# --- Text & screenshot modalities (adapters/text_adapter.py, screenshot_adapter.py) ---
+Pillow>=10.0
+
+# --- Testing ---
+pytest>=8.0.0
+
+# --- Optional: Standalone URL API service (domain_intelligence/app) ---
+# Only needed if you run `uvicorn main:app` inside domain_intelligence/.
+fastapi>=0.115
+uvicorn>=0.30
+httpx>=0.27
+slowapi>=0.1.9

@@ -1,0 +1,2 @@
+evaluation_type,threshold,training_rows,test_rows,accuracy,precision,recall,f1,roc_auc,pr_auc,false_positive_rate,false_negative_rate,true_negative,false_positive,false_negative,true_positive
+stratified_random_fixed_holdout,0.5,202283,50571,0.9443950089972514,0.968677693032822,0.9157080362929358,0.9414483821263482,0.9871481449538028,0.9887218936451818,0.02824247575628791,0.08429196370706415,25152,731,2081,22607

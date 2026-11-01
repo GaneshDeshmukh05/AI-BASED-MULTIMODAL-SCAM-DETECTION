@@ -1,0 +1,32 @@
+{
+  "primary": {
+    "source": "domain_intelligence/raw_data.csv",
+    "input_rows": 253098,
+    "removed_missing": 0,
+    "removed_invalid_url": 104,
+    "removed_unrecognized_label": 0,
+    "removed_conflicting_duplicate_urls": 8,
+    "removed_duplicate_urls": 132,
+    "retained_rows": 252854,
+    "retained_domains": 128315,
+    "class_counts": {
+      "0": 129416,
+      "1": 123438
+    }
+  },
+  "cross_dataset": {
+    "source": "domain_intelligence/phishing.csv",
+    "input_rows": 235795,
+    "removed_missing": 0,
+    "removed_invalid_url": 0,
+    "removed_unrecognized_label": 0,
+    "removed_conflicting_duplicate_urls": 2,
+    "removed_duplicate_urls": 1104,
+    "retained_rows": 234689,
+    "retained_domains": 220076,
+    "class_counts": {
+      "0": 134849,
+      "1": 99840
+    }
+  }
+}
