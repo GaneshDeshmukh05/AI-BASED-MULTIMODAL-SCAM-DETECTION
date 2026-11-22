@@ -2,6 +2,8 @@
 
 An AI-powered security system that detects scams across **phone calls, web links, text messages, and screenshots**. 
 
+> 💡 **New to this project or preparing for viva?** Check out [docs/SIMPLE_EXPLANATION.md](docs/SIMPLE_EXPLANATION.md) for a plain-English explanation of how everything works without any confusing jargon! 
+
 Instead of checking only one type of input, the system checks all available channels together. It combines findings from multiple machine learning models and gives a single, clear verdict with plain-English explanations.
 
 ---
@@ -165,6 +167,7 @@ For full API specifications, see [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
 | Document | Description |
 |---|---|
+| [docs/SIMPLE_EXPLANATION.md](docs/SIMPLE_EXPLANATION.md) | Plain-English guide for students, teachers, and viva defense |
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | High-level project summary, goals, and team roles |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detailed architecture and component design |
 | [docs/DATA_FLOW.md](docs/DATA_FLOW.md) | How an input moves through the entire system |
@@ -198,10 +201,10 @@ The URL module also includes its own standalone test suite: `pytest domain_intel
 To maintain scientific integrity for our college evaluation, here is the honest status of each component:
 
 * **URL Model (Reliable)**: Tested on 50,571 test URLs from 25,678 brand-new, unseen domains. Achieved **93.94% accuracy** and **0.9845 ROC-AUC**. On a separate external dataset, it achieved **88.48% accuracy**.
-* **Text Model (Hybrid Rules + ML)**: Combines TF-IDF, Naive Bayes, and keyword rules. Claims of ~98% accuracy from training are not supported by formal held-out tests.
+* **Text Model (Hybrid Rules + ML)**: Combines TF-IDF, Naive Bayes, and keyword heuristics. Validated on 5,000 held-out test messages with **98.42% accuracy**, **0.9992 precision**, and **0.9990 ROC-AUC** (see `text_model_eval_report.txt`).
 * **Screenshot Detection (OCR-Based)**: Uses Windows Native OCR to read text on the screen and searches for fake login forms and lottery/prize scams. It is not an end-to-end computer vision neural network.
 * **Audio Detection (Experimental)**: Normal phone calls and scam calls currently receive similar scores (~0.87–0.88). The anti-spoofing model also produces false alarms on phone audio. Because of this, audio deepfake scores are marked as unvalidated (`is_validated = False`) and do not drive high-confidence scam verdicts by themselves.
-* **Explanation Engine**: Uses a reliable rule-based template by default so it never hallucinates. Optional Gemini / OpenAI explanations are supported if API keys are provided.
-* **Backend Integration**: This repository contains the detection and fusion engine. The user interface and mobile app are developed in a separate repository.
+* **Explanation Engine**: Uses Gemini API (`gemini-flash-lite-latest`) with multi-model failover and zero-hallucination deterministic fallback if keys are missing or offline.
+* **Web Dashboard & API**: Includes a Streamlit browser dashboard (`app.py`, run with `npm run dev`) and a FastAPI REST service (`api.py`, run with `npm run api`) supporting both JSON and multipart file uploads.
 
 For full details, see [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).

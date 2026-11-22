@@ -1,0 +1,15 @@
+{
+  "name": "ai-based-multimodal-scam-detection",
+  "version": "1.0.0",
+  "description": "AI-Based Multimodal Scam & Phishing Detection System",
+  "scripts": {
+    "dev": "python -m streamlit run app.py",
+    "start": "python -m streamlit run app.py",
+    "api": "python -m uvicorn api:app --reload --port 8000",
+    "demo": "python demo.py",
+    "scan": "python main.py",
+    "test": "pytest"
+  },
+  "author": "",
+  "license": "MIT"
+}
