@@ -46,3 +46,14 @@ text_and_screenshot_module/Screenshot_Dataset-20261023T174631Z-1-001/Screenshot_
 
 # --- Temporary uploads (backend integration) ---
 temp_uploads/
+
+demo_output.txt
+test_output.txt
+# Training datasets excluded from deployment
+dataset/NORMAL_CALLS/
+dataset/SCAM_CALLS/
+audio_model/dataset/NORMAL_CALLS/
+audio_model/dataset/SCAM_CALLS/
+domain_intelligence/raw_data.csv
+domain_intelligence/phishing.csv
+text_and_screenshot_module/Text_Dataset-20261023T174336Z-1-001/Text_Dataset/FINAL_TEXT_DATASET_1_3.zip
