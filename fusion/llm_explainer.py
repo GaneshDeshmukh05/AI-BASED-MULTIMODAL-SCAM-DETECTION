@@ -25,6 +25,12 @@ from .schemas import (
 
 logger = logging.getLogger("llm_explainer")
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 
 @dataclass
 class ExplainerConfig:
@@ -33,7 +39,7 @@ class ExplainerConfig:
     provider: str = "auto"
     gemini_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-flash-lite-latest"
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     request_timeout: float = 10.0
@@ -213,10 +219,15 @@ class LLMExplainer:
     def _call_gemini(self, fusion_result: FusionResult) -> ExplanationResult:
         """Generates explanation via Google Gemini REST API."""
         api_key = self.config.gemini_api_key
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.config.gemini_model}:generateContent?key={api_key}"
-        )
+        models_to_try = [
+            self.config.gemini_model,
+            "gemini-flash-lite-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-3.6-flash",
+        ]
+        seen = set()
+        unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
 
         user_content = {
             "verdict": fusion_result.verdict.value,
@@ -253,15 +264,31 @@ class LLMExplainer:
             },
         }
 
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        data = None
+        last_exc = None
+        for model_name in unique_models:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={api_key}"
+            )
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self.config.request_timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    break
+            except Exception as exc:
+                last_exc = exc
+                continue
 
-        with urllib.request.urlopen(req, timeout=self.config.request_timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        if data is None:
+            if last_exc:
+                raise last_exc
+            raise RuntimeError("No Gemini model responded successfully.")
 
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
         parsed = self._clean_json_response(raw_text)

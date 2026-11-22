@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  dashboard:
+    build: .
+    container_name: scam_detection_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python -m streamlit run app.py --server.headless true --server.port 8501
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: scam_detection_api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python -m uvicorn api:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+

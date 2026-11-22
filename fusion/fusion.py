@@ -28,15 +28,16 @@ logger = logging.getLogger("fusion_engine")
 class FusionConfig:
     """Configurable weights and thresholds for multi-modality fusion."""
 
-    # Domain importance weights: higher weight = greater influence in weighted score
+    # Calibrated domain importance weights: aligned with empirical validation metrics
+    # (URL model: 0.9845 ROC-AUC; Text model: 0.9990 ROC-AUC; Audio: experimental on telephony)
     modality_weights: Dict[str, float] = field(
         default_factory=lambda: {
-            ModalityType.AUDIO_SCAM.value: 1.3,   # Direct conversational scam patterns
-            ModalityType.URL.value: 1.3,          # Phishing links have direct compromise risk
-            ModalityType.SCREENSHOT.value: 1.1,   # Visual mimicry / fake login
-            ModalityType.AUDIO_SPOOF.value: 1.1,  # Synthetic voice / deepfake indicator
-            ModalityType.TEXT.value: 1.0,         # Phishing keyword / NLP text
-            ModalityType.DOMAIN.value: 0.9,       # WHOIS / Domain age
+            ModalityType.URL.value: 1.4,          # Empirical 93.94% zero-day acc, 0.9845 ROC-AUC
+            ModalityType.TEXT.value: 1.2,         # Empirical 98.42% held-out acc, 0.9990 ROC-AUC
+            ModalityType.SCREENSHOT.value: 1.0,   # OCR visual credential / coercion analysis
+            ModalityType.AUDIO_SCAM.value: 0.8,   # Conversational scam pattern detection
+            ModalityType.AUDIO_SPOOF.value: 0.5,  # Uncalibrated on telephony audio (bounded influence)
+            ModalityType.DOMAIN.value: 0.9,       # WHOIS / Domain age reputation
         }
     )
 

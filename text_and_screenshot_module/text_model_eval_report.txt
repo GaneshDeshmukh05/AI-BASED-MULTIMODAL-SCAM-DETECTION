@@ -1,0 +1,28 @@
+============================================================
+  TEXT SCAM CLASSIFIER — HELD-OUT EVALUATION REPORT
+============================================================
+
+Dataset: FINAL_TEXT_DATASET_1_3.csv (20,000 total rows)
+Test Set: 5,000 held-out rows (Stratified Split)
+
+Accuracy  : 98.42%
+Precision : 0.9992
+Recall    : 0.9797
+F1-Score  : 0.9894
+ROC-AUC   : 0.9990
+
+Confusion Matrix:
+  True Negatives (Legitimate): 1247
+  False Positives (Spam):      3
+  False Negatives (Missed):    76
+  True Positives (Scam Catch): 3674
+
+Classification Report:
+                   precision    recall  f1-score   support
+
+   Legitimate (0)       0.94      1.00      0.97      1250
+Scam/Phishing (1)       1.00      0.98      0.99      3750
+
+         accuracy                           0.98      5000
+        macro avg       0.97      0.99      0.98      5000
+     weighted avg       0.99      0.98      0.98      5000
