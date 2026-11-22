@@ -1,0 +1,24 @@
+
+FROM python:3.11-slim
+
+# Install the Tesseract OCR system engine
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the project directory
+WORKDIR /app
+
+# Copy the complete repository
+COPY . .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Make Tesseract available to pytesseract
+ENV TESSERACT_CMD=/usr/bin/tesseract
+
+# Start the FastAPI backend
+WORKDIR /app/client-app/backend
+
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
