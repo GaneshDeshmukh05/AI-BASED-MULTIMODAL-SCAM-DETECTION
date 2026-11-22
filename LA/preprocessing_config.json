@@ -1,0 +1,13 @@
+{
+  "sample_rate": 16000,
+  "n_mels": 64,
+  "n_fft": 1024,
+  "hop_length": 256,
+  "max_seconds": 5.0,
+  "label_mapping": {
+    "bonafide": 0,
+    "spoof": 1
+  },
+  "threshold": 0.5,
+  "note": "Starter log-Mel CNN baseline, not official ASVspoof baseline"
+}
