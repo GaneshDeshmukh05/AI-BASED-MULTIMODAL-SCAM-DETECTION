@@ -5,12 +5,29 @@ Supports both audio modules:
 1. dataset/audio_scam_detection_model: Scam call audio vs normal call audio
 2. LA/asvspoof2019_la_cnn: Bona fide vs spoofed/synthetic audio
 Provides both output dictionary adaptation and direct live inference execution on audio files.
+
+Runtime engine (environment variable ``AUDIO_ENGINE``)
+------------------------------------------------------
+* ``auto``  (default) - try TensorFlow/Keras first; if it is not installed,
+  fall back to the pure-NumPy engine in ``numpy_cnn.py``.  This is the
+  original behaviour, so local development is unchanged.
+* ``numpy`` - never import TensorFlow.  Use this on small servers (for example
+  Render's free 512 MB instance), where TensorFlow alone can use most of the RAM.
+* ``keras`` - require TensorFlow/Keras and fail if it is missing.
+
+Other environment variables
+---------------------------
+* ``AUDIO_MAX_SECONDS`` (default 10) - only this many seconds of a recording are
+  ever decoded.  Both models look at just the first 5 seconds, so reading more is
+  wasted CPU and memory.  Set to 0 to decode the whole file.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -23,91 +40,157 @@ from fusion.schemas import (
 logger = logging.getLogger("audio_adapter")
 
 
+def _float_env(name: str, default: float) -> float:
+    """Reads a float environment variable, falling back to ``default`` if it is unset or invalid."""
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Only the first 5 seconds are analysed by the models, so never decode much more than that.
+MAX_AUDIO_SECONDS = _float_env("AUDIO_MAX_SECONDS", 10.0)
+
+
 class AudioAdapter:
     """Adapts raw inference outputs from audio detectors."""
 
     _scam_model: Optional[Any] = None
     _spoof_model: Optional[Any] = None
 
+    # Protects model loading when several requests arrive at the same time.
+    _model_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _engine_preference() -> str:
+        """Returns 'auto', 'keras' or 'numpy' (from the AUDIO_ENGINE environment variable)."""
+        pref = os.getenv("AUDIO_ENGINE", "auto").strip().lower()
+        return pref if pref in ("auto", "keras", "numpy") else "auto"
+
+    @staticmethod
+    def _find_audio_dir() -> Path:
+        """Searches upwards from this file for the audio_model directory."""
+        cur = Path(__file__).resolve().parent
+        audio_dir = cur.parent / "audio_model"
+        for _ in range(3):
+            if (cur / "audio_model").is_dir():
+                audio_dir = cur / "audio_model"
+                break
+            cur = cur.parent
+        return audio_dir
+
+    @classmethod
+    def _build_model(cls, target_path: str, has_conv_bias: bool) -> Any:
+        """Creates a predictor object for the .keras model at ``target_path``."""
+        pref = cls._engine_preference()
+
+        if pref != "numpy":
+            try:
+                import keras
+
+                return keras.models.load_model(target_path, compile=False)
+            except Exception as exc:
+                if pref == "keras":
+                    raise
+                logger.info(
+                    "TensorFlow/Keras runtime unavailable (%s). Using native NumPy CNN engine.",
+                    exc,
+                )
+
+        from .numpy_cnn import NumPyKerasCNNPredictor
+
+        logger.info("Loading audio model with the NumPy engine: %s", target_path)
+        return NumPyKerasCNNPredictor(target_path, has_conv_bias=has_conv_bias)
+
     @classmethod
     def load_scam_model(cls, model_path: Optional[str] = None) -> Any:
         """Loads and caches scam call Keras model."""
         if cls._scam_model is None:
-            os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-            os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+            with cls._model_lock:
+                if cls._scam_model is None:
+                    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+                    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-            # Search upwards for audio_model
-            cur = Path(__file__).resolve().parent
-            audio_dir = cur.parent / "audio_model"
-            for _ in range(3):
-                if (cur / "audio_model").is_dir():
-                    audio_dir = cur / "audio_model"
-                    break
-                cur = cur.parent
+                    default_path = str(
+                        cls._find_audio_dir() / "dataset" / "best_audio_scam_model.keras"
+                    )
+                    target_path = model_path or default_path
+                    if not os.path.exists(target_path):
+                        alt_path = os.path.join("dataset", "best_audio_scam_model.keras")
+                        if os.path.exists(alt_path):
+                            target_path = alt_path
 
-            default_path = str(audio_dir / "dataset" / "best_audio_scam_model.keras")
-            target_path = model_path or default_path
-            if not os.path.exists(target_path):
-                alt_path = os.path.join(
-                                        "dataset",
-                    "best_audio_scam_model.keras",
-                )
-                if os.path.exists(alt_path):
-                    target_path = alt_path
-
-            try:
-                import keras
-                cls._scam_model = keras.models.load_model(target_path, compile=False)
-            except Exception as exc:
-                logger.info("TensorFlow/Keras runtime unavailable (%s). Using native NumPy CNN engine.", exc)
-                from .numpy_cnn import NumPyKerasCNNPredictor
-                cls._scam_model = NumPyKerasCNNPredictor(target_path, has_conv_bias=False)
+                    cls._scam_model = cls._build_model(target_path, has_conv_bias=False)
         return cls._scam_model
 
     @classmethod
     def load_spoof_model(cls, model_path: Optional[str] = None) -> Any:
         """Loads and caches ASVspoof anti-spoofing Keras model."""
         if cls._spoof_model is None:
-            os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-            os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+            with cls._model_lock:
+                if cls._spoof_model is None:
+                    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+                    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-            cur = Path(__file__).resolve().parent
-            audio_dir = cur.parent / "audio_model"
-            for _ in range(3):
-                if (cur / "audio_model").is_dir():
-                    audio_dir = cur / "audio_model"
-                    break
-                cur = cur.parent
+                    default_path = str(cls._find_audio_dir() / "LA" / "best_model.keras")
+                    target_path = model_path or default_path
+                    if not os.path.exists(target_path):
+                        alt_path = os.path.join("LA", "best_model.keras")
+                        if os.path.exists(alt_path):
+                            target_path = alt_path
 
-            default_path = str(audio_dir / "LA" / "best_model.keras")
-            target_path = model_path or default_path
-            if not os.path.exists(target_path):
-                alt_path = os.path.join(
-                                        "LA",
-                    "best_model.keras",
-                )
-                if os.path.exists(alt_path):
-                    target_path = alt_path
-
-            try:
-                import keras
-                cls._spoof_model = keras.models.load_model(target_path, compile=False)
-            except Exception as exc:
-                logger.info("TensorFlow/Keras runtime unavailable (%s). Using native NumPy CNN engine.", exc)
-                from .numpy_cnn import NumPyKerasCNNPredictor
-                cls._spoof_model = NumPyKerasCNNPredictor(target_path, has_conv_bias=True)
+                    cls._spoof_model = cls._build_model(target_path, has_conv_bias=True)
         return cls._spoof_model
 
+    @classmethod
+    def warmup(cls) -> None:
+        """Imports the audio libraries and loads both models ahead of the first request.
+
+        Optional. The backend calls this in a background thread when AUDIO_WARMUP=1
+        so that the first real audio scan does not pay the one-time start-up cost.
+        """
+        started = time.perf_counter()
+        import numpy as np
+        import librosa
+        import soundfile  # noqa: F401
+
+        cls.load_scam_model()
+        cls.load_spoof_model()
+
+        # Touch librosa's feature code once so any lazy set-up happens now.
+        librosa.feature.melspectrogram(
+            y=np.zeros(16000, dtype=np.float32),
+            sr=16000,
+            n_fft=1024,
+            hop_length=256,
+            n_mels=64,
+        )
+        logger.info("Audio warm-up finished in %.1fs", time.perf_counter() - started)
+
+    # ------------------------------------------------------------------
+    # Audio decoding / feature extraction
+    # ------------------------------------------------------------------
     @staticmethod
     def _load_audio_robust(audio_path: str, target_sr: int = 16000) -> Any:
-        """Loads and converts any audio file (including .unknown, .aac, .3gp, .mp3, .wav) to 16kHz mono."""
+        """Loads and converts any audio file (including .unknown, .aac, .3gp, .mp3, .wav) to 16kHz mono.
+
+        Only the first ``AUDIO_MAX_SECONDS`` seconds are decoded (the models use 5 s).
+        """
         import numpy as np
         import soundfile as sf
         import librosa
 
+        max_seconds = MAX_AUDIO_SECONDS if MAX_AUDIO_SECONDS > 0 else None
+
         # 1. Try direct soundfile read
         try:
-            data, sr = sf.read(audio_path, dtype="float32", always_2d=False)
+            frames = -1
+            if max_seconds is not None:
+                frames = int(sf.info(audio_path).samplerate * max_seconds)
+            data, sr = sf.read(audio_path, frames=frames, dtype="float32", always_2d=False)
             if data.ndim == 2:
                 data = data.mean(axis=1)
             if sr != target_sr:
@@ -118,7 +201,7 @@ class AudioAdapter:
 
         # 2. Try librosa.load
         try:
-            y, sr = librosa.load(audio_path, sr=target_sr, mono=True)
+            y, sr = librosa.load(audio_path, sr=target_sr, mono=True, duration=max_seconds)
             return y.astype(np.float32)
         except Exception:
             pass
@@ -132,14 +215,10 @@ class AudioAdapter:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp_wav = tmp.name
         try:
-            cmd = [
-                ffmpeg_exe, "-y", "-v", "error",
-                "-i", audio_path,
-                "-ar", str(target_sr),
-                "-ac", "1",
-                "-f", "wav",
-                tmp_wav,
-            ]
+            cmd = [ffmpeg_exe, "-y", "-v", "error", "-i", audio_path]
+            if max_seconds is not None:
+                cmd += ["-t", str(max_seconds)]
+            cmd += ["-ar", str(target_sr), "-ac", "1", "-f", "wav", tmp_wav]
             subprocess.run(cmd, check=True, capture_output=True)
             data, sr = sf.read(tmp_wav, dtype="float32", always_2d=False)
             if data.ndim == 2:
@@ -171,9 +250,13 @@ class AudioAdapter:
         logmel = librosa.power_to_db(mel, ref=np.max)
         return ((logmel - logmel.mean()) / (logmel.std() + 1e-6)).astype("float32")
 
+    # ------------------------------------------------------------------
+    # Live inference
+    # ------------------------------------------------------------------
     @classmethod
     def predict_scam_call_file(cls, audio_path: str, threshold: float = 0.5) -> ModalityResult:
         """Runs live feature extraction and inference on an audio file using scam model."""
+        started = time.perf_counter()
         try:
             import numpy as np
             import librosa
@@ -185,12 +268,15 @@ class AudioAdapter:
             spec = librosa.power_to_db(spec, ref=np.max)
             feat = ((spec - spec.mean()) / (spec.std() + 1e-6))[None, ..., None]
             score = float(model.predict(feat, verbose=0).ravel()[0])
+            # Release the large arrays as soon as the score is known.
+            del y, spec, feat
             raw = {
                 "label": "scam" if score >= threshold else "normal",
                 "scam_score": score,
                 "threshold": threshold,
                 "file": audio_path,
             }
+            logger.info("Scam-call audio model finished in %.1fs", time.perf_counter() - started)
             return cls.adapt_scam_call(raw, source_name=os.path.basename(audio_path))
         except Exception as exc:
             msg = str(exc)
@@ -203,6 +289,7 @@ class AudioAdapter:
     @classmethod
     def predict_spoof_file(cls, audio_path: str, threshold: float = 0.5) -> ModalityResult:
         """Runs live feature extraction and inference on an audio file using LA anti-spoof model."""
+        started = time.perf_counter()
         try:
             import numpy as np
             import librosa
@@ -213,12 +300,15 @@ class AudioAdapter:
             logmel = cls._compute_spoof_logmel(y, sr=16000)
             spec = logmel[..., None][None, ...]
             score = float(model.predict(spec, verbose=0).ravel()[0])
+            # Release the large arrays as soon as the score is known.
+            del y, logmel, spec
             raw = {
                 "file": audio_path,
                 "spoof_score": score,
                 "prediction": "spoof / synthetic" if score >= threshold else "bonafide / genuine",
                 "threshold": threshold,
             }
+            logger.info("Anti-spoof audio model finished in %.1fs", time.perf_counter() - started)
             return cls.adapt_spoof(raw, source_name=os.path.basename(audio_path))
         except Exception as exc:
             msg = str(exc)
@@ -228,6 +318,9 @@ class AudioAdapter:
                 logger.exception("Failed live spoof audio prediction on %s", audio_path)
             return ModalityResult.failed(ModalityType.AUDIO_SPOOF.value, f"Spoof inference error: {exc}")
 
+    # ------------------------------------------------------------------
+    # Result adapters (unchanged)
+    # ------------------------------------------------------------------
     @staticmethod
     def adapt_scam_call(
         raw: Dict[str, Any],

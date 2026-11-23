@@ -1,4 +1,3 @@
-
 FROM python:3.11-slim
 
 # Install the Tesseract OCR system engine
@@ -12,11 +11,31 @@ WORKDIR /app
 # Copy the complete repository
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies.
+# requirements-deploy.txt is requirements.txt without TensorFlow/Keras, which
+# would not fit in Render's free 512 MB of RAM. The audio models run on the
+# pure-NumPy engine instead.
+RUN pip install --no-cache-dir -r requirements-deploy.txt
 
 # Make Tesseract available to pytesseract
 ENV TESSERACT_CMD=/usr/bin/tesseract
+
+# Run the audio models with the lightweight NumPy engine (no TensorFlow).
+ENV AUDIO_ENGINE=numpy
+
+# The free instance has a tiny fraction of a CPU: extra BLAS/numba threads only
+# waste memory and fight each other, so keep every library to one thread.
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMBA_NUM_THREADS=1
+
+# Show log lines immediately, and build matplotlib's font cache now (at build
+# time) instead of during the first request.
+ENV PYTHONUNBUFFERED=1 \
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/app/.matplotlib
+RUN python -c "import matplotlib.pyplot"
 
 # Start the FastAPI backend
 WORKDIR /app/client-app/backend
