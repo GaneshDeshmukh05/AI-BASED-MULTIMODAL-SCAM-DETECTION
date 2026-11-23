@@ -1,8 +1,14 @@
+import asyncio
+import functools
+import gc
 import json
 import logging
 import sqlite3
 import sys
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -21,10 +27,92 @@ from fusion import analyze_multimodal
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Settings (all can be overridden with environment variables on Render)
+# ---------------------------------------------------------------------------
+# How long one scan may run before the API gives up and tells the frontend.
+# Keep this BELOW the frontend's 120 second axios timeout so the user sees our
+# message instead of a generic "timeout" error.
+SCAN_TIMEOUT_SECONDS = float(os.getenv("SCAN_TIMEOUT_SECONDS", "90"))
+
+# Set AUDIO_WARMUP=1 to load the audio libraries/models in the background when
+# the server starts, so the first audio scan is fast. Off by default because it
+# raises memory use at start-up; turn it on once Render's Metrics tab shows
+# there is plenty of free memory.
+AUDIO_WARMUP = os.getenv("AUDIO_WARMUP", "0").strip().lower() in ("1", "true", "yes")
+
+# ---------------------------------------------------------------------------
+# Why the scans run in worker threads
+# ---------------------------------------------------------------------------
+# The analysis code (TensorFlow/NumPy, librosa, XGBoost ...) is "blocking": it
+# keeps the CPU busy and never gives control back. If it runs directly inside an
+# `async def` endpoint it freezes the whole server, so even /api/health and text
+# scans stop answering. Running it in a thread keeps the server responsive.
+#
+# Two single-worker pools are used on purpose:
+#   * _audio_executor - scans that include an audio file (slow and memory hungry).
+#     Only one runs at a time.
+#   * _light_executor - everything else. Those scans run one after another, which
+#     is how the application behaved before, so shared model objects are never
+#     used by two threads at once. An audio scan can never block them.
+_audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audio-scan")
+_light_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="light-scan")
+
+# True while an audio scan is running. It is only changed from the event loop,
+# so no lock is needed. It stays True until the worker thread has really
+# finished, even if the request already timed out.
+_audio_scan_running = False
+
+
+def _peak_memory_note() -> str:
+    """Returns ' (peak memory so far: N MB)' where the platform supports it."""
+    try:
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except Exception:
+        return ""
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return f" (peak memory so far: {peak / divisor:.0f} MB)"
+
+
+def _run_analysis(**kwargs):
+    """Runs the (blocking) analysis inside a worker thread."""
+    started = time.perf_counter()
+    try:
+        return analyze_multimodal(**kwargs)
+    finally:
+        gc.collect()  # hand big temporary arrays back to the operating system
+        logger.info(
+            "Analysis finished in %.1f s%s",
+            time.perf_counter() - started,
+            _peak_memory_note(),
+        )
+
+
+def _warmup_audio():
+    """Optional background job that pre-loads the audio models."""
+    try:
+        from adapters.audio_adapter import AudioAdapter
+
+        AudioAdapter.warmup()
+    except Exception:
+        logger.exception("Audio warm-up failed (audio scans will load models on first use)")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if AUDIO_WARMUP:
+        logger.info("AUDIO_WARMUP is on: loading audio models in the background")
+        _audio_executor.submit(_warmup_audio)
+    yield
+
+
 app = FastAPI(
     title="ScamShield AI API",
     description="Multimodal scam and phishing detection API",
     version="1.1.0",
+    lifespan=lifespan,
 )
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -158,6 +246,31 @@ async def save_upload(
     return str(destination)
 
 
+def _remove_files(paths):
+    """Deletes temporary upload files (ignores missing files)."""
+    for path in paths:
+        if path:
+            Path(path).unlink(missing_ok=True)
+
+
+def _on_analysis_done(future, paths, audio_slot_taken):
+    """Runs on the event loop when the worker thread has really finished.
+
+    This happens even if the HTTP request already timed out, so the temporary
+    files are removed and the audio slot is freed only when the thread is done.
+    """
+    global _audio_scan_running
+
+    if audio_slot_taken:
+        _audio_scan_running = False
+    _remove_files(paths)
+
+    # Mark any exception as "seen" so Python does not print a confusing warning
+    # for scans that timed out. The request handler reports real errors itself.
+    if not future.cancelled() and future.exception() is not None:
+        logger.debug("Analysis thread ended with an error: %r", future.exception())
+
+
 @app.post("/api/scan")
 async def scan_multimodal(
     url: Optional[str] = Form(None),
@@ -166,6 +279,8 @@ async def scan_multimodal(
     screenshot_file: Optional[UploadFile] = File(None),
     offline_mode: bool = Form(True),
 ):
+    global _audio_scan_running
+
     clean_text = text.strip() if text and text.strip() else None
     clean_url = url.strip() if url and url.strip() else None
 
@@ -177,6 +292,8 @@ async def scan_multimodal(
 
     audio_path = None
     screenshot_path = None
+    analysis_future = None
+    audio_slot_taken = False
 
     try:
         screenshot_path = await save_upload(
@@ -190,16 +307,66 @@ async def scan_multimodal(
             {".wav"},
         )
 
-        logger.info("Starting multimodal scan")
+        # Only one audio scan at a time: the free server has very little memory.
+        if audio_path:
+            if _audio_scan_running:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Another audio analysis is still running. "
+                        "Please wait a minute and try again."
+                    ),
+                )
+            _audio_scan_running = True
+            audio_slot_taken = True
 
-        result = analyze_multimodal(
-            audio_path=audio_path,
-            url=clean_url,
-            text=clean_text,
-            screenshot_path=screenshot_path,
-            include_domain_intelligence=not offline_mode,
-            explainer_provider="deterministic",
+        logger.info("Starting multimodal scan (audio=%s)", bool(audio_path))
+
+        loop = asyncio.get_running_loop()
+        executor = _audio_executor if audio_path else _light_executor
+        analysis_future = loop.run_in_executor(
+            executor,
+            functools.partial(
+                _run_analysis,
+                audio_path=audio_path,
+                url=clean_url,
+                text=clean_text,
+                screenshot_path=screenshot_path,
+                include_domain_intelligence=not offline_mode,
+                explainer_provider="deterministic",
+            ),
         )
+        analysis_future.add_done_callback(
+            functools.partial(
+                _on_analysis_done,
+                paths=(audio_path, screenshot_path),
+                audio_slot_taken=audio_slot_taken,
+            )
+        )
+
+        try:
+            # shield(): a timeout stops *waiting*, it does not touch the worker
+            # thread, so the files and the audio slot are cleaned up afterwards
+            # by _on_analysis_done.
+            result = await asyncio.wait_for(
+                asyncio.shield(analysis_future),
+                timeout=SCAN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "Scan did not finish within %.0f seconds (audio=%s)",
+                SCAN_TIMEOUT_SECONDS,
+                bool(audio_path),
+            )
+            if audio_path:
+                detail = (
+                    "The audio analysis is taking longer than expected. The audio "
+                    "models may still be starting up on the server. Please try "
+                    "again in a minute."
+                )
+            else:
+                detail = "The analysis took too long to complete. Please try again."
+            raise HTTPException(status_code=504, detail=detail)
 
         result_data = result.to_dict()
         scan_id = uuid.uuid4().hex
@@ -232,9 +399,12 @@ async def scan_multimodal(
             detail="The analysis service encountered an unexpected error.",
         ) from exc
     finally:
-        for path in (audio_path, screenshot_path):
-            if path:
-                Path(path).unlink(missing_ok=True)
+        # If the worker thread never started, clean up here. Otherwise
+        # _on_analysis_done does it when the thread finishes.
+        if analysis_future is None:
+            _remove_files((audio_path, screenshot_path))
+            if audio_slot_taken:
+                _audio_scan_running = False
 
 
 @app.get("/api/history")
