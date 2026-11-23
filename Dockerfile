@@ -1,34 +1,43 @@
 FROM python:3.11-slim
 
-# Prevent Python from buffering stdout & writing bytecode
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-WORKDIR /app
-
-# Install system dependencies for audio decoding, image OCR, and building packages
+# Install the Tesseract OCR system engine
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libsndfile1 \
-    ffmpeg \
     tesseract-ocr \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt plotly fastapi uvicorn streamlit
+# Set the project directory
+WORKDIR /app
 
-# Copy repository source code
+# Copy the complete repository
 COPY . .
 
-# Expose Web Dashboard (8501) and REST API (8000)
-EXPOSE 8501 8000
+# Install Python dependencies.
+# requirements-deploy.txt is requirements.txt without TensorFlow/Keras, which
+# would not fit in Render's free 512 MB of RAM. The audio models run on the
+# pure-NumPy engine instead.
+RUN pip install --no-cache-dir -r requirements-deploy.txt
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+# Make Tesseract available to pytesseract
+ENV TESSERACT_CMD=/usr/bin/tesseract
 
-# Default: start Streamlit interactive UI
-CMD ["python", "-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8501"]
+# Run the audio models with the lightweight NumPy engine (no TensorFlow).
+ENV AUDIO_ENGINE=numpy
 
+# The free instance has a tiny fraction of a CPU: extra BLAS/numba threads only
+# waste memory and fight each other, so keep every library to one thread.
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMBA_NUM_THREADS=1
+
+# Show log lines immediately, and build matplotlib's font cache now (at build
+# time) instead of during the first request.
+ENV PYTHONUNBUFFERED=1 \
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/app/.matplotlib
+RUN python -c "import matplotlib.pyplot"
+
+# Start the FastAPI backend
+WORKDIR /app/client-app/backend
+
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
